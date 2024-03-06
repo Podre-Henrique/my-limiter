@@ -5,7 +5,7 @@ import "github.com/gofiber/fiber/v2/middleware/limiter"
 
 ...limiter.New()
 ```
-A diferença entre o meu é o padrão do fiber é que o meu limiter adiciona uma penalidade para o usuario que ultrapassa o limite de requisições em determinado intervalo. 
+A diferença entre o meu e o padrão do fiber é que o meu limiter adiciona uma penalidade para o usuario que ultrapassa o limite de requisições em determinado intervalo. 
 
 ### V1
 Na versão v1 o limiter utiliza apenas uma goroutine para gerenciar todos usuarios, pois quando o temporizador for acionado deletara todos os usuarios que não estiveram ativo até determinado intervalo, e tambem um "ticker" para resetar as requisições de cada usuario que tenha passado o tempo de ban ou que não tenha sido bloqueado
