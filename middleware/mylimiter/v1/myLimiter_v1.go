@@ -1,10 +1,11 @@
-package v2
+package v1
 
 import (
 	"fmt"
 	"sync"
 	"time"
 
+	"github.com/Podre-Henrique/my-ratelimit/middleware/mylimiter/config"
 	"github.com/gofiber/fiber/v2"
 )
 
@@ -14,29 +15,29 @@ Todavia, supondo um limite de 20 requisições por minuto e o usuario faça 19 r
 o usuario podera fazer mais 20 requisições novamente, o que somaria 39 requisições em menos de um minuto no pior dos casos
 */
 
-const (
+var (
 	// limite de requisições
-	limitRequest uint8 = 2
+	limitRequest uint16
 	// renova a cada minuto
-	renewIn = time.Minute * 1
+	renewIn time.Duration
 	// tempo em memoria
-	durationInMemory = time.Minute * 5
+	durationInMemory time.Duration
 	// duração do timeout no usuario
-	durationTimeout = time.Minute * 5
+	durationBan time.Duration
 )
 
 var (
 	// usado para renovar as requisiçoes do usuario
-	renew = time.NewTicker(renewIn)
+	renew *time.Ticker
 	// usado para gerenciar o tempo do usuario em memoria
-	duration = time.NewTicker(durationInMemory)
+	duration *time.Ticker
 )
 
 type user struct {
 	ip    string
 	block bool
 	// quantidade de requisições
-	counts      uint8
+	counts      uint16
 	blockIn     time.Time
 	lastRequest time.Time
 	sync.Mutex
@@ -47,7 +48,7 @@ type users struct {
 	sync.Mutex
 }
 
-var limiter = &users{
+var limiterUsers = &users{
 	usersMap: make(map[string]*user),
 }
 
@@ -55,20 +56,18 @@ func timeout() {
 	for {
 		select {
 		case <-duration.C:
-			fmt.Println("Deletando usuarios...")
 			// deleta os usuarios que atinjiram o tempo limite em memoria
-			for userIp, userInfo := range limiter.usersMap {
+			for userIp, userInfo := range limiterUsers.usersMap {
 				if time.Since(userInfo.lastRequest) > durationInMemory {
-					delete(limiter.usersMap, userIp)
+					delete(limiterUsers.usersMap, userIp)
 				}
 			}
-			fmt.Println(limiter)
 		case <-renew.C:
-			fmt.Println("Resetando usuarios...")
+			fmt.Println(limiterUsers)
 			// caso o tempo de block tenha excedido desbloqueia os usuarios e reseta suas requisições
-			for _, userInfo := range limiter.usersMap {
+			for _, userInfo := range limiterUsers.usersMap {
 				// caso o tempo de block tenha excedido(ou nao esteja bloqueado), desbloqueia o usuario e reseta suas requisições
-				if time.Since(userInfo.blockIn) > durationTimeout {
+				if time.Since(userInfo.blockIn) > durationBan {
 					userInfo.counts = 0
 					userInfo.block = false
 				}
@@ -77,24 +76,21 @@ func timeout() {
 	}
 }
 
-func init() {
-	go timeout()
-}
-func MyLimiter(c *fiber.Ctx) error {
+func myLimiter(c *fiber.Ctx) error {
 	ip := c.IP()
 
 	// ao fazer testes com racecondition percebi a necessidade de utilizar mutex
-	limiter.Lock()
-	reqUser, ok := limiter.usersMap[ip]
+	limiterUsers.Lock()
+	reqUser, ok := limiterUsers.usersMap[ip]
 	if !ok {
 		// insere um novo usuario no map
-		limiter.usersMap[ip] = &user{ip: ip, counts: 1}
-		// cria uma goroutine para este ussuario
-		limiter.Unlock()
+		limiterUsers.usersMap[ip] = &user{ip: ip, counts: 1}
+		// cria uma goroutine para este usuario
+		limiterUsers.Unlock()
 		// retorna o proximo middleware/handler
 		return c.Next()
 	}
-	limiter.Unlock()
+	limiterUsers.Unlock()
 
 	reqUser.Lock()
 	defer reqUser.Unlock()
@@ -104,7 +100,7 @@ func MyLimiter(c *fiber.Ctx) error {
 	// caso o usuario esteja bloqueado
 	if reqUser.block {
 		// verifica se ainda passou o tempo de "bloqueamento"
-		if time.Since(reqUser.blockIn) < durationTimeout {
+		if time.Since(reqUser.blockIn) < durationBan {
 			return fiber.ErrTooManyRequests // retorna 429
 		} else {
 			reqUser.block = false
@@ -118,4 +114,17 @@ func MyLimiter(c *fiber.Ctx) error {
 		reqUser.blockIn = time.Now()
 	}
 	return c.Next()
+}
+
+func New(config config.Config) fiber.Handler {
+	limitRequest = config.LimitRequest
+	renewIn = config.RenewIn
+	durationInMemory = config.DurationInMemory
+	durationBan = config.DurationBan
+
+	renew = time.NewTicker(renewIn)
+	duration = time.NewTicker(durationInMemory)
+	go timeout()
+
+	return myLimiter
 }

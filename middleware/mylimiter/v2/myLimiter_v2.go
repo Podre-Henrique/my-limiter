@@ -1,9 +1,10 @@
-package v1
+package v2
 
 import (
 	"sync"
 	"time"
 
+	"github.com/Podre-Henrique/my-ratelimit/middleware/mylimiter/config"
 	"github.com/gofiber/fiber/v2"
 )
 
@@ -12,22 +13,22 @@ Esta versão consome mais memoria pois para cada usuario é criada uma goroutine
 quantidade de requisições feita no intervalo de tempo
 */
 
-const (
+var (
 	// limite de requisições
-	limitRequest uint8 = 50
+	limitRequest uint16
 	// renova a cada minuto
-	renewIn = time.Minute * 1
+	renewIn time.Duration
 	// tempo em memoria
-	durationInMemory = time.Minute * 5
+	durationInMemory time.Duration
 	// duração do timeout no usuario
-	durationTimeout = time.Minute * 5
+	durationBan time.Duration
 )
 
 type user struct {
 	ip    string
 	block bool
 	// quantidade de requisições
-	counts  uint8
+	counts  uint16
 	blockIn time.Time
 	sync.Mutex
 	// usado para renovar as requisiçoes do usuario
@@ -41,7 +42,7 @@ type users struct {
 	sync.Mutex
 }
 
-var limiter = &users{
+var limiterUsers = &users{
 	usersMap: make(map[string]*user),
 }
 
@@ -50,35 +51,35 @@ func (i *user) timeout() {
 		select {
 		case <-i.duration.C:
 			// deleta o usuario caso atinja o tempo limite em memoria
-			delete(limiter.usersMap, i.ip)
+			delete(limiterUsers.usersMap, i.ip)
 			return
 		case <-i.ticker.C:
 			// caso o tempo de block tenha excedido(ou nao esteja bloqueado), desbloqueia o usuario e reseta suas requisições
-			if !i.block || time.Since(i.blockIn) > durationTimeout {
+			if !i.block || time.Since(i.blockIn) > durationBan {
 				i.counts = 0
 				i.block = false
 			}
 		}
 	}
 }
-func MyLimiter(c *fiber.Ctx) error {
+func myLimiter(c *fiber.Ctx) error {
 	ip := c.IP()
 
 	// ao fazer testes com racecondition percebi a necessidade de utilizar mutex
-	limiter.Lock()
-	req, ok := limiter.usersMap[ip]
+	limiterUsers.Lock()
+	req, ok := limiterUsers.usersMap[ip]
 	if !ok {
 		duration := time.NewTimer(durationInMemory)
 		ticker := time.NewTicker(renewIn)
 		// insere um novo usuario no map
-		limiter.usersMap[ip] = &user{ip: ip, counts: 1, ticker: ticker, duration: duration}
+		limiterUsers.usersMap[ip] = &user{ip: ip, counts: 1, ticker: ticker, duration: duration}
 		// cria uma goroutine para este ussuario
-		go limiter.usersMap[ip].timeout()
-		limiter.Unlock()
+		go limiterUsers.usersMap[ip].timeout()
+		limiterUsers.Unlock()
 		// retorna o proximo middleware/handler
 		return c.Next()
 	}
-	limiter.Unlock()
+	limiterUsers.Unlock()
 
 	req.Lock()
 	defer req.Unlock()
@@ -88,7 +89,7 @@ func MyLimiter(c *fiber.Ctx) error {
 	// caso o usuario esteja bloqueado
 	if req.block {
 		// verifica se ainda passou o tempo de "bloqueamento"
-		if time.Since(req.blockIn) < durationTimeout {
+		if time.Since(req.blockIn) < durationBan {
 			return fiber.ErrTooManyRequests // retorna 429
 		} else {
 			req.block = false
@@ -102,4 +103,12 @@ func MyLimiter(c *fiber.Ctx) error {
 		req.blockIn = time.Now()
 	}
 	return c.Next()
+}
+
+func New(config config.Config) fiber.Handler {
+	limitRequest = config.LimitRequest
+	renewIn = config.RenewIn
+	durationInMemory = config.DurationInMemory
+	durationBan = config.DurationBan
+	return myLimiter
 }
