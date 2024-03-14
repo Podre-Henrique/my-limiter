@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"github.com/Podre-Henrique/my-ratelimit/middleware/mylimiter/config"
-	v2 "github.com/Podre-Henrique/my-ratelimit/middleware/mylimiter/v2"
+	v1 "github.com/Podre-Henrique/my-ratelimit/middleware/mylimiter/v1"
 	"github.com/gofiber/fiber/v2"
 )
 
@@ -39,5 +39,5 @@ func configure(config ...config.Config) config.Config {
 func New(config ...config.Config) fiber.Handler {
 	cfg := configure(config...)
 	// return v1.New(cfg)
-	return v2.New(cfg)
+	return v1.New(cfg)
 }
