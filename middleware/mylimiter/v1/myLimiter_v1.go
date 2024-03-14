@@ -57,11 +57,13 @@ func timeout() {
 		select {
 		case <-duration.C:
 			// deleta os usuarios que atinjiram o tempo limite em memoria
+			limiterUsers.Lock()
 			for userIp, userInfo := range limiterUsers.usersMap {
 				if time.Since(userInfo.lastRequest) > durationInMemory {
 					delete(limiterUsers.usersMap, userIp)
 				}
 			}
+			limiterUsers.Unlock()
 		case <-renew.C:
 			fmt.Println(limiterUsers)
 			// caso o tempo de block tenha excedido desbloqueia os usuarios e reseta suas requisições
