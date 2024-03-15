@@ -13,5 +13,4 @@ Na versão v1 o limiter utiliza apenas uma goroutine para gerenciar todos usuari
 ### V2
 Na versão v2 o limiter utiliza goroutines para gerenciar cada usuario, onde para cada usuario, tera um temporizador para gerenciar a exclusão do usuario na memoria e tambem um "ticker" para resetar as requisições dado o intervalo de tempo.
 
-### Anotações
-Caso o sistema tenha alto trafego recomendo que se utilize v1
+### Exemplo de uso em main.go
